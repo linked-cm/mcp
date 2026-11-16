@@ -1,0 +1,26 @@
+# @linked.cm/mcp
+
+Connected agents for Linked apps, over the [Model Context Protocol](https://modelcontextprotocol.io).
+
+A shape is the one contract a Linked app's data, backend and UI bind to. This package adds agents to that list: an app that installs it lets a person connect an agent, and the agent can read, change and call **the app's own shapes**, as that person, within declared capabilities. An app that adds a shape gets an agent surface for it without writing a tool.
+
+- **Through Linked's own paths.** Reads and writes are DSL-JSON queries through the server's query plane; calls are declared provider methods.
+- **As the person.** Every call runs as the person the connection belongs to, so the app's existing access rules apply unchanged.
+- **Nothing open by default.** Capabilities (Turtle, [`@linked.cm/mcp-ont`](../mcp-ont)) name the shapes and callables an agent may use; layers narrow them.
+- **Refusals name what is missing** and which layer withheld it.
+
+## Status
+
+Staged in linked-cm (npm scope `@linked.cm`); it moves to linked-fw once approved. Local only for now. Requires `@_linked/server-utils` 1.18 (the delegated call context, linked-fw/server-utils#125).
+
+## Develop
+
+```sh
+npm install
+npm run build
+npm test
+```
+
+## Changelog
+
+See `CHANGELOG.md`.
