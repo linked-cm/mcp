@@ -114,9 +114,12 @@ const asToolResult = (outcome: ToolOutcome) =>
         },
       };
 
-/** A provider class that mounts the MCP endpoint for `host`. Export it as the package backend's default. */
-export function createMcpProvider(host: McpHost, options: McpProviderOptions = {}): typeof BackendProvider {
-  const path = options.path ?? '/mcp';
+/**
+ * The endpoint as one request handler `(req, res, next)`, for a host that
+ * mounts its own routes (on POST, GET and DELETE of one path). The body must
+ * already be parsed as JSON. `createMcpProvider` mounts this same handler.
+ */
+export function createMcpHandler(host: McpHost, options: Omit<McpProviderOptions, 'path'> = {}) {
   const serverInfo = options.serverInfo ?? { name: 'linked-mcp', version: '0.0.0' };
   const byKey = options.connections?.byKey ?? linkedConnectionByKey;
   const noteActed = options.connections?.noteActed ?? ((id: string) => linkedNoteActed(id));
@@ -189,10 +192,18 @@ export function createMcpProvider(host: McpHost, options: McpProviderOptions = {
     await transport.handleRequest(req, res, req.body);
   };
 
+  return (req: any, res: any, next: (error?: unknown) => void) => {
+    handle(req, res).catch(next);
+  };
+}
+
+/** A provider class that mounts the MCP endpoint for `host`. Export it as the package backend's default. */
+export function createMcpProvider(host: McpHost, options: McpProviderOptions = {}): typeof BackendProvider {
+  const path = options.path ?? '/mcp';
+  const handler = createMcpHandler(host, options);
   return class McpProvider extends BackendProvider {
     setupBeforeControllers() {
-      for (const method of ['post', 'get', 'delete'] as const)
-        this.registerRoute(method, path, (req: any, res: any, next: any) => handle(req, res).catch(next));
+      for (const method of ['post', 'get', 'delete'] as const) this.registerRoute(method, path, handler);
     }
 
     async dispose() {
