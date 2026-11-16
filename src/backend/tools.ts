@@ -15,7 +15,7 @@
  * and which layer withheld it. Server-only.
  */
 import { LinkedStorage } from '@_linked/core/utils/LinkedStorage';
-import type { ShapeCatalog } from '@_linked/core/utils/ShapeCatalog';
+import { builtInShapeIris, type ShapeCatalog } from '@_linked/core/utils/ShapeCatalog';
 import { runAsDelegate } from '@_linked/server-utils/utils/CallContext';
 import { ServerCallError } from '@_linked/server-utils/utils/ServerCallError';
 import { authorizeGenericQuery } from '@_linked/server/utils/queryPlane';
@@ -135,13 +135,27 @@ export async function grantsOf(host: McpHost, connection: ConnectionRecord, call
 const asInput = (value: unknown): Readonly<Record<string, unknown>> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-async function decide(host: McpHost, connection: ConnectionRecord, call: McpCall, needs: readonly Need[]): Promise<ToolOutcome | undefined> {
+/** The app's own shapes in a catalog: what `mcp:AnyShape` covers (never Linked's built-in shapes). */
+export function appShapesOf(catalog: ShapeCatalog | undefined): ((shape: string) => boolean) | undefined {
+  if (!catalog) return undefined;
+  const builtIn = new Set(builtInShapeIris());
+  return (shape) => catalog.has(shape) && !builtIn.has(shape);
+}
+
+async function decide(
+  host: McpHost,
+  connection: ConnectionRecord,
+  call: McpCall,
+  needs: readonly Need[],
+  isAppShape?: (shape: string) => boolean
+): Promise<ToolOutcome | undefined> {
   if (host.placeInput?.required && call.input.place === undefined)
     return refuse(host, 'bad-input', 'Say where this works: `place` is required.');
   if (host.inScope && !(await host.inScope(connection, { tool: call.tool, input: call.input, needs })))
     return refuse(host, 'out-of-scope', 'That is outside where this agent may work.');
   const verdict = evaluate(await grantsOf(host, connection, call), needs, host.declarations, {
     ...(host.isShapeOrSubShape ? { isShapeOrSubShape: host.isShapeOrSubShape } : {}),
+    ...(isAppShape ? { isAppShape } : {}),
   });
   if (!verdict.ok)
     return refuse(host, 'not-granted', refusalText(verdict, host.declarations, { ...(host.nameOf ? { nameOf: host.nameOf } : {}) }), verdict);
@@ -170,6 +184,29 @@ function capRead(json: unknown, limit: number): unknown {
   return { ...query, limit: Math.min(asked, limit) };
 }
 
+/**
+ * The `shapes` tool: where it works, inside the scope, then what every layer
+ * lets this connection read there (`describe` writes the answer).
+ */
+export async function runShapesTool(
+  host: McpHost,
+  connection: ConnectionRecord,
+  input: Readonly<Record<string, unknown>>,
+  describe: (grants: Grants, catalog: ShapeCatalog | undefined) => unknown
+): Promise<ToolOutcome> {
+  const call: McpCall = { tool: 'shapes', input };
+  const refused = await decide(host, connection, call, []);
+  if (refused) return refused;
+  try {
+    const catalog = await host.catalogFor?.(connection, call);
+    return { ok: true, result: describe(await grantsOf(host, connection, call), catalog) };
+  } catch (error) {
+    const app = appRefusal(host, error);
+    if (app) return app;
+    throw error;
+  }
+}
+
 /** Run a DSL-JSON query tool: `read`, `create`, `update` or `delete`. */
 export async function runQueryTool(
   host: McpHost,
@@ -183,8 +220,10 @@ export async function runQueryTool(
   if (!allowedOperations) return refuse(host, 'unknown-tool', `There is no tool called ${tool}.`);
   const json = tool === 'read' ? capRead(rawQuery, host.readLimit ?? 100) : rawQuery;
   let decoded;
+  let catalog: ShapeCatalog | undefined;
   try {
-    decoded = needsOfQuery(json, await host.catalogFor?.(connection, call));
+    catalog = await host.catalogFor?.(connection, call);
+    decoded = needsOfQuery(json, catalog);
   } catch (error) {
     if (error instanceof QueryNotUnderstoodError) return refuse(host, 'bad-input', error.message);
     const app = appRefusal(host, error);
@@ -193,7 +232,7 @@ export async function runQueryTool(
   }
   if (!allowedOperations.includes(decoded.operation))
     return refuse(host, 'bad-input', `"${tool}" takes ${allowedOperations.join(' or ')} queries; this one is a ${decoded.operation}.`);
-  const refused = await decide(host, connection, call, decoded.needs);
+  const refused = await decide(host, connection, call, decoded.needs, appShapesOf(catalog));
   if (refused) return refused;
   try {
     const result = await asDelegate(host, connection, call, async () => {

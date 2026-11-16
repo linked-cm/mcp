@@ -20,17 +20,18 @@ import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getNodeShape } from '@_linked/core/utils/ShapeClass';
+import type { ShapeCatalog } from '@_linked/core/utils/ShapeCatalog';
 import { toWire } from '@_linked/core/shapes/nodeShapeWire';
 import { BackendProvider } from '@_linked/server-utils/utils/BackendProvider';
 import { KIND } from '../declarations.js';
-import { effective } from '../evaluate.js';
+import { ANY_SHAPE, effective } from '../evaluate.js';
 import {
   connectionByKey as linkedConnectionByKey,
   noteActed as linkedNoteActed,
   type ConnectionRecord,
 } from './connections.js';
 import { RateLimit } from './rateLimit.js';
-import { grantsOf, isRefusal, QUERY_TOOLS, runCall, runHostTool, runQueryTool, type McpHost, type ToolOutcome } from './tools.js';
+import { appShapesOf, isRefusal, runShapesTool, QUERY_TOOLS, runCall, runHostTool, runQueryTool, type McpHost, type ToolOutcome } from './tools.js';
 
 export interface McpProviderOptions {
   /** Where the endpoint is mounted. Default `/mcp`. */
@@ -76,12 +77,18 @@ const bearer = (header: unknown): string | undefined => {
 };
 
 /** The shapes this connection may read, described as Linked describes them. */
-function readableShapes(host: McpHost, connection: ConnectionRecord, grants: Parameters<typeof effective>[0]) {
+function readableShapes(host: McpHost, grants: Parameters<typeof effective>[0], catalog: ShapeCatalog | undefined) {
   const shapes = new Set<string>();
-  for (const capability of effective(grants, host.declarations))
-    if (capability.kinds.includes(KIND.read)) for (const shape of capability.shapes) shapes.add(shape);
+  const isAppShape = appShapesOf(catalog);
+  for (const capability of effective(grants, host.declarations)) {
+    if (!capability.kinds.includes(KIND.read)) continue;
+    for (const shape of capability.shapes) {
+      if (shape !== ANY_SHAPE) shapes.add(shape);
+      else if (catalog && isAppShape) for (const data of catalog.values()) if (isAppShape(data.id)) shapes.add(data.id);
+    }
+  }
   return [...shapes].sort().map((iri) => {
-    const data = getNodeShape({ id: iri } as never) as unknown;
+    const data = (catalog?.get(iri) ?? getNodeShape({ id: iri } as never)) as unknown;
     return data ? toWire(data as never) : { id: iri };
   });
 }
@@ -148,7 +155,7 @@ export function createMcpProvider(host: McpHost, options: McpProviderOptions = {
       if (!limits.take(connection.id)) {
         outcome = { ok: false, reason: 'rate-limited', reasonIri: 'https://linked.cm/ont/mcp/RateLimited', text: 'Too many requests; try again in a minute.' };
       } else if (tool === 'shapes') {
-        outcome = { ok: true, result: readableShapes(host, connection, await grantsOf(host, connection, { tool, input: args })) };
+        outcome = await runShapesTool(host, connection, args, (grants, catalog) => readableShapes(host, grants, catalog));
       } else if (tool in QUERY_TOOLS) {
         outcome = await runQueryTool(host, connection, tool, args.query, args);
       } else if (tool === 'call') {

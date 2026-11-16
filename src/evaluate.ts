@@ -32,13 +32,23 @@ export type Verdict = { readonly ok: true } | { readonly ok: false; readonly mis
 export interface EvaluateOptions {
   /** Whether `shape` is `ancestor` or one of its sub-shapes. Default: the same IRI only. */
   readonly isShapeOrSubShape?: (shape: string, ancestor: string) => boolean;
+  /**
+   * Whether `shape` is one of the app's own, in the catalog the call is decoded in: what
+   * `mcp:AnyShape` covers. Absent (no catalog), `mcp:AnyShape` covers nothing.
+   */
+  readonly isAppShape?: (shape: string) => boolean;
 }
+
+/** `mcp:onShape mcp:AnyShape`: every shape of the app's own catalog. */
+export const ANY_SHAPE = `${MCP}AnyShape`;
 
 function covers(capability: Capability, need: Need, options: EvaluateOptions): boolean {
   if (!capability.kinds.includes(need.kind)) return false;
   if ('shape' in need) {
     const within = options.isShapeOrSubShape ?? ((a: string, b: string) => a === b);
-    return capability.shapes.some((shape) => within(need.shape, shape));
+    return capability.shapes.some((shape) =>
+      shape === ANY_SHAPE ? options.isAppShape?.(need.shape) === true : within(need.shape, shape)
+    );
   }
   if ('callable' in need) return capability.callables.includes(need.callable);
   return capability.operations.includes(need.operation);
