@@ -11,7 +11,7 @@ A shape is the one contract a Linked app's data, backend and UI bind to. This pa
 
 ## Status
 
-Staged in linked-cm (npm scope `@linked.cm`); it moves to linked-fw once approved. Local only for now. Requires `@_linked/server-utils` 1.18 (the delegated call context, linked-fw/server-utils#125).
+Staged in linked-cm (npm scope `@linked.cm`, repository [linked-cm/mcp](https://github.com/linked-cm/mcp)); it moves to linked-fw once approved. Not published to npm yet. In development it reads [`@linked.cm/mcp-ont`](https://github.com/linked-cm/mcp-ont) from a sibling checkout (`file:../mcp-ont`). Requires `@_linked/server-utils` 1.18 (the delegated call context, linked-fw/server-utils#125).
 
 ## Places
 
