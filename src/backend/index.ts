@@ -1,6 +1,6 @@
 // Server-only: the MCP endpoint, the connection store, and running agent requests.
 export { createMcpProvider, type McpProviderOptions } from './provider.js';
-export { isRefusal, type McpHost, type AgentCallable, type HostTool, type ToolOutcome, type Refusal, type RefusalReason } from './tools.js';
+export { isRefusal, type McpHost, type McpCall, type AgentCallable, type HostTool, type ToolOutcome, type Refusal, type RefusalReason } from './tools.js';
 export {
   issueConnection,
   connectionByKey,

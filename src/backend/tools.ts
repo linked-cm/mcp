@@ -69,14 +69,32 @@ export interface HostTool {
   run(input: unknown, connection: ConnectionRecord): Promise<unknown>;
 }
 
+/** One tool call, as the host sees it: the tool, and its input (with its `place`, when the host asks for one). */
+export interface McpCall {
+  readonly tool: string;
+  readonly input: Readonly<Record<string, unknown>>;
+}
+
 export interface McpHost {
   readonly declarations: Declarations;
-  /** The layers other than the connection's own grants, for this request. */
-  grantsFor(connection: ConnectionRecord): Promise<Grants>;
+  /** The layers other than the connection's own grants, for this call (its place may change them). */
+  grantsFor(connection: ConnectionRecord, call?: McpCall): Promise<Grants>;
+  /**
+   * Where a call works, when the app has more than one place (a project, an
+   * app, a branch …): a JSON Schema added to every tool's input as `place`.
+   * The host reads it in `inScope`, `grantsFor` and `within`.
+   */
+  readonly placeInput?: { readonly schema: Record<string, unknown>; readonly required?: boolean };
+  /**
+   * Run a call where it works (the app's data routing for its place). Called
+   * inside the delegated context, around the access check and the store. A
+   * thrown 401/403 is a refusal by the app.
+   */
+  within?<T>(connection: ConnectionRecord, call: McpCall, run: () => Promise<T>): Promise<T>;
   /** The person's account, as the app's sessions carry it (`linkedAuth.userAccount`). */
   accountOf(person: string): Promise<unknown>;
   /** The catalog a connection's queries are decoded in; the global registry when absent. */
-  catalogFor?(connection: ConnectionRecord): Promise<ShapeCatalog | undefined>;
+  catalogFor?(connection: ConnectionRecord, call: McpCall): Promise<ShapeCatalog | undefined>;
   /** Whether a request is inside the connection's scope; everything is when absent. */
   inScope?(connection: ConnectionRecord, request: { tool: string; input: unknown; needs: readonly Need[] }): boolean | Promise<boolean>;
   /** Whether `shape` is `ancestor` or a sub-shape of it, for capabilities on a super-shape. */
@@ -110,14 +128,19 @@ export const QUERY_TOOLS: Readonly<Record<string, readonly QueryOperation[]>> = 
 };
 
 /** The grants of every layer for this request: the host's, plus the connection's own. */
-async function grantsOf(host: McpHost, connection: ConnectionRecord): Promise<Grants> {
-  return { ...(await host.grantsFor(connection)), [CONNECTION_LAYER]: new Set(connection.grants) };
+export async function grantsOf(host: McpHost, connection: ConnectionRecord, call?: McpCall): Promise<Grants> {
+  return { ...(await host.grantsFor(connection, call)), [CONNECTION_LAYER]: new Set(connection.grants) };
 }
 
-async function decide(host: McpHost, connection: ConnectionRecord, tool: string, input: unknown, needs: readonly Need[]): Promise<ToolOutcome | undefined> {
-  if (host.inScope && !(await host.inScope(connection, { tool, input, needs })))
+const asInput = (value: unknown): Readonly<Record<string, unknown>> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+async function decide(host: McpHost, connection: ConnectionRecord, call: McpCall, needs: readonly Need[]): Promise<ToolOutcome | undefined> {
+  if (host.placeInput?.required && call.input.place === undefined)
+    return refuse(host, 'bad-input', 'Say where this works: `place` is required.');
+  if (host.inScope && !(await host.inScope(connection, { tool: call.tool, input: call.input, needs })))
     return refuse(host, 'out-of-scope', 'That is outside where this agent may work.');
-  const verdict = evaluate(await grantsOf(host, connection), needs, host.declarations, {
+  const verdict = evaluate(await grantsOf(host, connection, call), needs, host.declarations, {
     ...(host.isShapeOrSubShape ? { isShapeOrSubShape: host.isShapeOrSubShape } : {}),
   });
   if (!verdict.ok)
@@ -125,8 +148,10 @@ async function decide(host: McpHost, connection: ConnectionRecord, tool: string,
   return undefined;
 }
 
-const asDelegate = async <T>(host: McpHost, connection: ConnectionRecord, fn: () => Promise<T>): Promise<T> =>
-  runAsDelegate(await host.accountOf(connection.person), { id: connection.id, label: connection.agentName, via: connection.via ?? 'mcp' }, fn);
+const asDelegate = async <T>(host: McpHost, connection: ConnectionRecord, call: McpCall, fn: () => Promise<T>): Promise<T> =>
+  runAsDelegate(await host.accountOf(connection.person), { id: connection.id, label: connection.agentName, via: connection.via ?? 'mcp' }, () =>
+    host.within ? host.within(connection, call, fn) : fn()
+  );
 
 /** A refusal from the app's own rules (the person may not either), as a result. */
 function appRefusal(host: McpHost, error: unknown): ToolOutcome | undefined {
@@ -146,13 +171,20 @@ function capRead(json: unknown, limit: number): unknown {
 }
 
 /** Run a DSL-JSON query tool: `read`, `create`, `update` or `delete`. */
-export async function runQueryTool(host: McpHost, connection: ConnectionRecord, tool: string, rawQuery: unknown): Promise<ToolOutcome> {
+export async function runQueryTool(
+  host: McpHost,
+  connection: ConnectionRecord,
+  tool: string,
+  rawQuery: unknown,
+  input: Readonly<Record<string, unknown>> = { query: rawQuery }
+): Promise<ToolOutcome> {
+  const call: McpCall = { tool, input };
   const allowedOperations = QUERY_TOOLS[tool];
   if (!allowedOperations) return refuse(host, 'unknown-tool', `There is no tool called ${tool}.`);
   const json = tool === 'read' ? capRead(rawQuery, host.readLimit ?? 100) : rawQuery;
   let decoded;
   try {
-    decoded = needsOfQuery(json, await host.catalogFor?.(connection));
+    decoded = needsOfQuery(json, await host.catalogFor?.(connection, call));
   } catch (error) {
     if (error instanceof QueryNotUnderstoodError) return refuse(host, 'bad-input', error.message);
     const app = appRefusal(host, error);
@@ -161,10 +193,10 @@ export async function runQueryTool(host: McpHost, connection: ConnectionRecord, 
   }
   if (!allowedOperations.includes(decoded.operation))
     return refuse(host, 'bad-input', `"${tool}" takes ${allowedOperations.join(' or ')} queries; this one is a ${decoded.operation}.`);
-  const refused = await decide(host, connection, tool, json, decoded.needs);
+  const refused = await decide(host, connection, call, decoded.needs);
   if (refused) return refused;
   try {
-    const result = await asDelegate(host, connection, async () => {
+    const result = await asDelegate(host, connection, call, async () => {
       await authorizeGenericQuery(decoded.operation, json, decoded.builder, `mcp ${tool}`);
       const builder = decoded.builder as never;
       // Returned inside an object: a query builder is a thenable.
@@ -185,10 +217,11 @@ export async function runQueryTool(host: McpHost, connection: ConnectionRecord, 
 export async function runCall(host: McpHost, connection: ConnectionRecord, callableId: unknown, input: unknown): Promise<ToolOutcome> {
   const callable = typeof callableId === 'string' ? host.callables?.find((c) => c.id === callableId) : undefined;
   if (!callable) return refuse(host, 'unknown-tool', `Nothing called ${String(callableId)} is open to agents.`);
-  const refused = await decide(host, connection, 'call', input, [{ kind: KIND.call, callable: callable.id }]);
+  const call: McpCall = { tool: 'call', input: { ...asInput(input), callable: callable.id } };
+  const refused = await decide(host, connection, call, [{ kind: KIND.call, callable: callable.id }]);
   if (refused) return refused;
   try {
-    return { ok: true, result: await asDelegate(host, connection, () => callable.run(input)) };
+    return { ok: true, result: await asDelegate(host, connection, call, () => callable.run(input)) };
   } catch (error) {
     const app = appRefusal(host, error);
     if (app) return app;
@@ -198,10 +231,11 @@ export async function runCall(host: McpHost, connection: ConnectionRecord, calla
 
 /** Run a host tool. */
 export async function runHostTool(host: McpHost, connection: ConnectionRecord, tool: HostTool, input: unknown): Promise<ToolOutcome> {
-  const refused = await decide(host, connection, tool.name, input, tool.needs(input));
+  const call: McpCall = { tool: tool.name, input: asInput(input) };
+  const refused = await decide(host, connection, call, tool.needs(input));
   if (refused) return refused;
   try {
-    return { ok: true, result: await asDelegate(host, connection, () => tool.run(input, connection)) };
+    return { ok: true, result: await asDelegate(host, connection, call, () => tool.run(input, connection)) };
   } catch (error) {
     const app = appRefusal(host, error);
     if (app) return app;

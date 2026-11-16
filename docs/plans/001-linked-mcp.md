@@ -178,3 +178,9 @@ Built locally against the linked-fw branch `delegated-call-context` (server-util
      - a disconnect stops the next call;
      - no route is left after dispose.
 6. ✅ **Live check** — built, waiting for the key: `npm run live-check` (`tests/live/live-check.live.ts`, its own vitest config). A real `claude-opus-5-5` (server-side fallbacks on, effort medium) drives the endpoint through the SDK's manual tool loop with a read-only connection; it passes when the read succeeds, the write is refused by name and nothing is written. Without `.env.local` it fails naming the file. Adds `@anthropic-ai/sdk` as a dev dependency.
+7. ✅ **Places** (added 2026-11-17, from the first host). A host with more than one place (projects, apps …) needs each call to say where it works, and to be decided and run there. Three `McpHost` seams (41 tests in all):
+   - `placeInput`: a JSON Schema added to every tool's input as `place` (required when the host says so; a call without it is `bad-input`, before anything runs);
+   - `grantsFor(connection, call)`: a host layer may grant differently per place, which is how a host restricts what agents may do with data there;
+   - `within(connection, call, run)`: runs the call where it works (the host's data routing), inside the delegated context, around the access check and the store. `catalogFor` also gets the call.
+   - **Validation (`tests/place.test.ts`):** every tool asks for `place`; a create runs in its place as the person's delegate; the same create in a place whose layer withholds writing is refused by name and never runs; a place outside the scope is `out-of-scope`; a call without a place runs nothing.
+

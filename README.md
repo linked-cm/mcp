@@ -13,6 +13,16 @@ A shape is the one contract a Linked app's data, backend and UI bind to. This pa
 
 Staged in linked-cm (npm scope `@linked.cm`); it moves to linked-fw once approved. Local only for now. Requires `@_linked/server-utils` 1.18 (the delegated call context, linked-fw/server-utils#125).
 
+## Places
+
+An app with more than one place (projects, apps, branches …) gives the endpoint three things:
+
+- `placeInput`: a JSON Schema for `place`, added to every tool's input;
+- `grantsFor(connection, call)`: its layers for that call, so a place can grant less (for example, to keep agents away from some data there);
+- `within(connection, call, run)`: runs the call where it works, for the app's data routing.
+
+`inScope` and `catalogFor` see the call too.
+
 ## Develop
 
 ```sh
