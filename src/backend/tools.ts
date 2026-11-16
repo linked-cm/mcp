@@ -22,6 +22,7 @@ import { authorizeGenericQuery } from '@_linked/server/utils/queryPlane';
 import { CONNECTION_LAYER, KIND, MCP, type Declarations } from '../declarations.js';
 import { evaluate, refusalText, type Grants, type Need, type Verdict } from '../evaluate.js';
 import type { ConnectionRecord } from './connections.js';
+import { unreadableQueryText } from './queryGuide.js';
 import { needsOfQuery, QueryNotUnderstoodError, type QueryOperation } from './needs.js';
 
 export type RefusalReason = 'not-granted' | 'out-of-scope' | 'unknown-tool' | 'bad-input' | 'rate-limited' | 'refused-by-app';
@@ -225,7 +226,7 @@ export async function runQueryTool(
     catalog = await host.catalogFor?.(connection, call);
     decoded = needsOfQuery(json, catalog);
   } catch (error) {
-    if (error instanceof QueryNotUnderstoodError) return refuse(host, 'bad-input', error.message);
+    if (error instanceof QueryNotUnderstoodError) return refuse(host, 'bad-input', unreadableQueryText(error.message, tool));
     const app = appRefusal(host, error);
     if (app) return app;
     throw error;

@@ -74,9 +74,7 @@ describe('a real model through the MCP endpoint', () => {
         {
           role: 'user',
           content:
-            'You are connected to an app through these tools. Data is described by shapes; queries are Linked DSL-JSON ' +
-            '(for example {"v":"1.0","shape":"<shape id>","fields":[{"path":"text"}]} to read, and ' +
-            '{"v":"1.0","op":"update","shape":"<shape id>","mode":"for","targetId":"<id>","data":{"shape":"<shape id>","fields":[{"prop":"text","value":{"kind":"lit","value":"…"}}]}} to update). ' +
+            'You are connected to an app through these tools. ' +
             'First call `shapes`, then read the text of every note, then change the note\'s text to "Buy seed trays and pots". ' +
             'Finish by saying in one sentence what you read and whether the change was made.',
         },
@@ -106,6 +104,7 @@ describe('a real model through the MCP endpoint', () => {
           const refused = !!result.structuredContent?.refused;
           calls.push({ name: block.name, input: block.input, refused, text });
           console.log(`[live-check] ${block.name}${refused ? ' REFUSED' : ''}: ${text.slice(0, 200)}`);
+          if (refused) console.log(`[live-check]   it sent: ${JSON.stringify(block.input).slice(0, 400)}`);
           results.push({ type: 'tool_result', tool_use_id: block.id, content: text });
         }
         messages.push({ role: 'user', content: results });
@@ -116,7 +115,9 @@ describe('a real model through the MCP endpoint', () => {
       // The write was refused by name, and nothing changed.
       const writes = calls.filter((c) => c.name === 'update' || c.name === 'create');
       expect(writes.length).toBeGreaterThan(0);
-      expect(writes.every((c) => c.refused && /doesn't allow agents to write notes/.test(c.text))).toBe(true);
+      // Every write is refused; the one it got right is refused by name (a malformed one is bad input).
+      expect(writes.every((c) => c.refused)).toBe(true);
+      expect(writes.some((c) => /doesn't allow agents to write notes/.test(c.text))).toBe(true);
       expect((await Note.select((n: any) => n.text)).map((r: any) => r.text)).toEqual(['Buy seed trays']);
     } finally {
       server.close();
