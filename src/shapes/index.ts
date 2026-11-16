@@ -5,3 +5,4 @@
 // Side-effect imports only: no exports, components or providers. `linked create-shape`
 // maintains the list below, and `linked build` fails when a shape module is missing.
 //SHAPES
+import './connection.js';
