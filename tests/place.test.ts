@@ -21,6 +21,7 @@ const ALL = ['read-notes', 'write-notes', 'delete-notes', 'archive'].map((c) => 
 
 const seen: { place: unknown; delegate: string | undefined }[] = [];
 const grantCalls: (McpCall | undefined)[] = [];
+const catalogCalls: McpCall[] = [];
 const host: McpHost = {
   declarations,
   placeInput: { schema: { type: 'string', description: 'The project it works in.' }, required: true },
@@ -30,6 +31,10 @@ const host: McpHost = {
     return { [WORKSPACE]: new Set(call?.input.place === 'locked' ? [APP + 'read-notes'] : ALL) };
   },
   accountOf: async (person) => ({ id: person }),
+  catalogFor: async (_connection, call) => {
+    catalogCalls.push(call);
+    return undefined;
+  },
   inScope: (_c, { input }) => input.place !== 'elsewhere',
   within: async (_c, call, run) => {
     seen.push({ place: call.input.place, delegate: currentDelegate()?.id });
@@ -54,6 +59,7 @@ beforeEach(() => {
   LinkedStorage.setDefaultDataset(new InMemoryDataset() as any);
   seen.length = 0;
   grantCalls.length = 0;
+  catalogCalls.length = 0;
 });
 
 const connect = async () => {
@@ -91,6 +97,17 @@ describe('places', () => {
     expect(outside.structuredContent).toMatchObject({ refused: true, reason: 'out-of-scope' });
     expect(seen).toHaveLength(1);
     expect((await Note.select((n: any) => n.text)).map((r: any) => r.text)).toEqual(['here']);
+  });
+
+  it('does not load the catalog for a place outside the scope', async () => {
+    const { client } = await connect();
+    const query = (Note.select((n: any) => n.text) as any).toJSON();
+    const outside: any = await client.callTool({ name: 'read', arguments: { query, place: 'elsewhere' } });
+    expect(outside.structuredContent).toMatchObject({ refused: true, reason: 'out-of-scope' });
+    expect(catalogCalls).toEqual([]);
+    // The same read inside the scope does load it, so the assertion above is not an unwired hook.
+    await client.callTool({ name: 'read', arguments: { query, place: 'garden' } });
+    expect(catalogCalls).toHaveLength(1);
   });
 
   it('refuses a call that does not say where, before anything runs', async () => {

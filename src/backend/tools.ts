@@ -220,6 +220,9 @@ export async function runQueryTool(
   const allowedOperations = QUERY_TOOLS[tool];
   if (!allowedOperations) return refuse(host, 'unknown-tool', `There is no tool called ${tool}.`);
   const json = tool === 'read' ? capRead(rawQuery, host.readLimit ?? 100) : rawQuery;
+  // A place outside the scope loads nothing: the catalog is that place's.
+  if (host.inScope && !(await host.inScope(connection, { tool: call.tool, input: call.input, needs: [] })))
+    return refuse(host, 'out-of-scope', 'That is outside where this agent may work.');
   let decoded;
   let catalog: ShapeCatalog | undefined;
   try {
