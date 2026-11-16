@@ -21,6 +21,17 @@ npm run build
 npm test
 ```
 
+## Live check
+
+A real Claude model, connected through the endpoint with a connection that may only read, is asked to read a note and then change it. It passes when the read succeeds and the change comes back as a named refusal, with nothing written.
+
+```sh
+echo 'ANTHROPIC_API_KEY=…' > .env.local   # git-ignored; read into the test process only, never printed
+npm run live-check
+```
+
+It uses `claude-opus-5-5` with server-side fallbacks on, and costs a few cents per run. It is never part of `npm test`.
+
 ## Changelog
 
 See `CHANGELOG.md`.

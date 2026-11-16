@@ -29,7 +29,8 @@
     "start": "linked dev",
     "build": "linked build",
     "typecheck": "tsc -p tsconfig-esm.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "live-check": "vitest run --config vitest.live.config.ts"
   },
   "keywords": [
     "linked",
@@ -68,6 +69,7 @@
     "@_linked/cli": "^1.57.0",
     "@_linked/server": "^3.14.1",
     "@_linked/server-utils": "^1.17.0",
+    "@anthropic-ai/sdk": "^1.8.0",
     "@changesets/cli": "^3.0.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.13.14",

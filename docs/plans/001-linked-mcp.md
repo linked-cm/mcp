@@ -177,4 +177,4 @@ Built locally against the linked-fw branch `delegated-call-context` (server-util
      - a call runs as the person;
      - a disconnect stops the next call;
      - no route is left after dispose.
-6. **Live check** with a real model (the key in `mcp/.env.local`).
+6. ✅ **Live check** — built, waiting for the key: `npm run live-check` (`tests/live/live-check.live.ts`, its own vitest config). A real `claude-opus-5-5` (server-side fallbacks on, effort medium) drives the endpoint through the SDK's manual tool loop with a read-only connection; it passes when the read succeeds, the write is refused by name and nothing is written. Without `.env.local` it fails naming the file. Adds `@anthropic-ai/sdk` as a dev dependency.
