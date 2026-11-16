@@ -64,8 +64,8 @@ export interface HostTool {
   readonly title: string;
   readonly description: string;
   readonly inputSchema?: Record<string, unknown>;
-  /** What it needs to be allowed (usually one `mcp:Perform` operation). */
-  needs(input: unknown): readonly Need[];
+  /** What it needs to be allowed (usually one `mcp:Perform` operation); it may depend on the connection. */
+  needs(input: unknown, connection: ConnectionRecord): readonly Need[];
   run(input: unknown, connection: ConnectionRecord): Promise<unknown>;
 }
 
@@ -271,7 +271,7 @@ export async function runCall(host: McpHost, connection: ConnectionRecord, calla
 /** Run a host tool. */
 export async function runHostTool(host: McpHost, connection: ConnectionRecord, tool: HostTool, input: unknown): Promise<ToolOutcome> {
   const call: McpCall = { tool: tool.name, input: asInput(input) };
-  const refused = await decide(host, connection, call, tool.needs(input));
+  const refused = await decide(host, connection, call, tool.needs(input, connection));
   if (refused) return refused;
   try {
     return { ok: true, result: await asDelegate(host, connection, call, () => tool.run(input, connection)) };
