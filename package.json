@@ -66,7 +66,7 @@
     "@_linked/core": "^2.41.0",
     "@linked.cm/mcp-ont": "file:../mcp-ont",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "n3": "^1.26.0"
+    "n3": "^2.0.0"
   },
   "devDependencies": {
     "@_linked/cli": "^1.57.0",
